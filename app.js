@@ -4,17 +4,16 @@ mount(document.getElementById("root"),countdownTimer);
 
 
 
-
 // *************************
 
-function countdownTimer(state,forceRender,initialCounter = 5) {
+function countdownTimer(state,initialCounter = 5) {
 	state.counter = ("counter" in state) ? state.counter : initialCounter;
 
 	// one time setup of the countdown interval
 	if (!("timer" in state)) {
 		state.timer = setInterval(function countdown(){
 			state.counter--;
-			forceRender();
+			state.commitUpdates();
 
 			if (state.counter <= 0) {
 				clearInterval(state.timer);
