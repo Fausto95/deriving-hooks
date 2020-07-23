@@ -138,6 +138,73 @@ var mount = wrapState(function mount(root,component,initialArgs = []){
 	return false;
 });
 
+var createStateStore = wrapState(function createStateStore(storeID,onStoreUpdated){
+	var [ stores ] = useState({});
+	var [ storesData ] = useState(new WeakMap());
+
+	if (!stores[storeID]) {
+		let store = {
+			listeners: [],
+			data: {
+				has(key) {
+					return (key in storesData.get(this));
+				},
+				get(key) {
+					return storesData.get(this)[key];
+				},
+				set(key,newVal) {
+					var storeData = storesData.get(this);
+					if (key in storeData) {
+						let oldVal = storeData[key];
+						if (!Object.is(oldVal,newVal)) {
+							storeData[key] = newVal;
+							store.notifyListeners("update",key,oldVal,newVal);
+							return true;
+						}
+					}
+					else {
+						storeData[key] = newVal;
+						store.notifyListeners("set",key,newVal);
+						return true;
+					}
+					return false;
+				},
+				remove(key) {
+					var storeData = storesData.get(this);
+					if (key in storeData) {
+						let oldVal = storeData[key];
+						delete storeData[key];
+						store.notifyListeners("remove",key,oldVal);
+						return true;
+					}
+					return false;
+				},
+				commitUpdate(key) {
+					var storeData = storesData.get(this);
+					store.notifyListeners("update",key,storeData[key],storeData[key]);
+				}
+			},
+			resetData() {
+				storesData.set(store.data,{});
+				store.notifyListeners("reset");
+			},
+			notifyListeners(type,...args) {
+				for (let listener of [ ...store.listeners ]) {
+					listener(type,...args);
+				}
+			}
+		};
+		storesData.set(store.data,{});
+		stores[storeID] = store;
+	}
+
+	stores[storeID].listeners.push(onStoreUpdated);
+	return [
+		stores[storeID].data,
+		stores[storeID].resetData
+	];
+});
+
 var useState = bindComponentStack(function useState(componentStack,initialVal){
 	var currentState = componentStack[componentStack.length - 1];
 	var [ hooks, hookIdx, onStateChange ] = currentState;
@@ -229,6 +296,48 @@ function useEffectToggle(fn,applyEffect) {
 			return fn();
 		}
 	},[ applyEffect ]);
+}
+
+function useSharedStore(storeID,onStoreUpdated) {
+	var [ storeEntry, updateStore ] = useState(setupSharedStateStore);
+	return storeEntry;
+
+	// ***********************
+
+	function setupSharedStateStore(){
+		var [ store, resetStore ] = createStateStore(
+			storeID,
+			(
+				onStoreUpdated ||
+				// or default to triggering state-change
+				(() => updateStore(storeEntry))
+			)
+		);
+		var storeEntry = [ useSharedState, store, resetStore ];
+		return storeEntry;
+
+		// ***********************
+
+		function useSharedState(key,initialVal) {
+			if (!store.has(key)) {
+				if (typeof initialVal == "function") {
+					initialVal = initialVal();
+				}
+				store.set(key,initialVal);
+			}
+			return [
+				store.get(key),
+				function setState(newVal) {
+					var prevVal = store.get(key);
+					if (typeof newVal == "function") {
+						newVal = newVal(prevVal);
+					}
+					store.set(key,newVal);
+					return newVal;
+				}
+			];
+		}
+	}
 }
 
 function matchGuards(prevGuards,newGuards) {
