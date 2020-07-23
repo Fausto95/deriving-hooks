@@ -2,14 +2,12 @@
 
 mount(document.getElementById("root"),countdownTimer);
 
-var state = {};
-
 
 
 
 // *************************
 
-function countdownTimer(forceRender,initialCounter = 5) {
+function countdownTimer(state,forceRender,initialCounter = 5) {
 	state.counter = ("counter" in state) ? state.counter : initialCounter;
 
 	// one time setup of the countdown interval

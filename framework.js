@@ -1,95 +1,112 @@
 "use strict";
 
 var componentStack = [];
-var componentIDs = new Set();
-var componentOps = new Map();
-var nextTick = null;
-var mountedComponents = new WeakMap();
 
+var generateComponentID = (function define(){
+	var state = {};
 
-function generateComponentID() {
-	do {
-		var id = Math.round(1E9 * Math.random());
-	}
-	while (componentIDs.has(id));
-	componentIDs.add(id);
-	return id;
-}
+	return function generateComponentID(){
+		var componentIDs = (
+			state.componentIDs = state.componentIDs || new Set()
+		);
 
-function schedule(type,context) {
-	componentOps = componentOps || new Map();
+		do {
+			var id = Math.round(1E9 * Math.random());
+		}
+		while (componentIDs.has(id));
+		componentIDs.add(id);
+		return id;
+	};
+})();
 
-	if (!componentOps.has(context.instance)) {
-		componentOps.set(context.instance,{});
-	}
-	var componentOpEntry = componentOps.get(context.instance);
+var schedule = (function define(){
+	var state = {};
 
-	if (type == "render" && !componentOpEntry.render) {
-		componentOpEntry.render = context;
-	}
-	else {
-		return;
-	}
+	return function schedule(type,context){
+		state.componentOps = state.componentOps || new Map();
 
-	if (!nextTick) {
-		nextTick = Promise.resolve().then(function drainOpQueue(){
-			// capture snapshot of all pending component ops
-			var opEntries = [ ...componentOps.values() ];
-			componentOps.clear();
-			nextTick = null;
+		if (!state.componentOps.has(context.instance)) {
+			state.componentOps.set(context.instance,{});
+		}
+		var componentOpEntry = state.componentOps.get(context.instance);
 
-			// process all scheduled component renders
-			for (let opEntry of opEntries) {
-				if (opEntry.render) {
-					let {
-						id, root, instance, initialArgs
-					} = opEntry.render;
+		if (type == "render" && !componentOpEntry.render) {
+			componentOpEntry.render = context;
+		}
+		else {
+			return;
+		}
 
-					let html = instance(...(initialArgs || []));
-					root.querySelectorAll(`[id='${ id }']`)[0].innerHTML = html;
+		if (!state.next) {
+			state.next = Promise.resolve().then(function drainOpQueue(){
+				// capture snapshot of all pending component ops
+				var opEntries = [ ...state.componentOps.values() ];
+				state.componentOps.clear();
+				state.next = null;
+
+				// process all scheduled component renders
+				for (let opEntry of opEntries) {
+					if (opEntry.render) {
+						let {
+							id, root, instance, initialArgs
+						} = opEntry.render;
+
+						let html = instance(...(initialArgs || []));
+						root.querySelectorAll(`[id='${ id }']`)[0].innerHTML = html;
+					}
 				}
-			}
-		});
-	}
-}
+			});
+		}
+	};
+})();
 
-function mount(root,component,initialArgs = []){
-	if (!mountedComponents.has(component)) {
-		mountedComponents.set(component,[]);
-	}
+var mount = (function define(){
+	var state = {};
 
-	var componentEntries = mountedComponents.get(component);
+	return function mount(root,component,initialArgs = []){
+		var mountedComponents = (
+			state.mountedComponents = state.mountedComponents || new WeakMap()
+		);
 
-	if (!componentEntries.find(entry => entry.root == root)) {
-		let componentID = generateComponentID();
-		let elem = document.createElement("div");
-		elem.id = componentID;
+		if (!state.mountedComponents.has(component)) {
+			state.mountedComponents.set(component,[]);
+		}
 
-		let componentEntry = {
-			id: componentID,
-			root,
-			instance: null,
-			initialArgs,
-			elem
-		};
+		var componentEntries = state.mountedComponents.get(component);
 
-		let componentInstance = function componentInstance(){
-			return component(
-				function forceRender(){
-					schedule("render",componentEntry);
-				},
-				...initialArgs
-			);
-		};
+		if (!componentEntries.find(entry => entry.root == root)) {
+			let componentID = generateComponentID();
+			let elem = document.createElement("div");
+			elem.id = componentID;
 
-		componentEntry.instance = componentInstance;
-		componentEntries.push(componentEntry);
+			let componentEntry = {
+				id: componentID,
+				root,
+				instance: null,
+				initialArgs,
+				elem,
+				state: {}
+			};
 
-		root.appendChild(elem);
+			let componentInstance = function componentInstance(){
+				return component(
+					componentEntry.state,
+					function forceRender(){
+						schedule("render",componentEntry);
+					},
+					...initialArgs
+				);
+			};
 
-		schedule("render",componentEntry);
-		return true;
-	}
+			componentEntry.instance = componentInstance;
+			componentEntries.push(componentEntry);
 
-	return false;
-}
+			root.appendChild(elem);
+
+			schedule("render",componentEntry);
+			return true;
+		}
+
+		return false;
+	};
+})();
