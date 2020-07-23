@@ -6,24 +6,27 @@ mount(document.getElementById("root"),countdownTimer);
 
 // *************************
 
-function countdownTimer(state,initialCounter = 5) {
-	state.counter = ("counter" in state) ? state.counter : initialCounter;
+function countdownTimer(initialCounter = 5) {
+	var [ counter, updateCounter ] = useState(initialCounter);
+	var [ timer, updateTimer ] = useState();
 
 	// one time setup of the countdown interval
-	if (!("timer" in state)) {
-		state.timer = setInterval(function countdown(){
-			state.counter--;
+	if (!timer) {
+		timer = updateTimer(
+			setInterval(function countdown(){
+				var counter = updateCounter(prevCounter => prevCounter - 1);
 
-			if (state.counter <= 0) {
-				clearInterval(state.timer);
-			}
-		},1000);
+				if (counter <= 0) {
+					clearInterval(timer);
+				}
+			},1000)
+		);
 	}
 
 	return `
 		<span>${
-			(state.counter > 0) ?
-				`Counting down: ${ state.counter }` :
+			(counter > 0) ?
+				`Counting down: ${ counter }` :
 				"Finished!"
 		}
 		</span>

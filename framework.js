@@ -2,57 +2,25 @@
 
 var componentStack = [];
 
-function wrapState(fn,onStateChange) {
-	var proxy = onStateChange ? createStateProxy(onStateChange) : null;
-	var state = Object.create(proxy);
+function wrapState(fn,onStateChange,componentEntry) {
+	var hooks = [];
+	if (componentEntry) {
+		componentEntry.hooks = hooks;
+	}
 
 	return function component(...args){
-		return fn(state,...args);
+		componentStack.push([ hooks, 0, onStateChange, component, componentEntry ]);
+		try {
+			return fn(...args);
+		}
+		finally {
+			componentStack.pop();
+		}
 	};
 }
 
-var createStateProxy = wrapState(function createStateProxy(state,onStateChange){
-	state.targetProps = state.targetProps || new WeakMap();
-
-	return Object.freeze(new Proxy({},{
-		has(target,key,context) {
-			if (state.targetProps.has(context)) {
-				return (key in state.targetProps.get(context));
-			}
-			return false;
-		},
-		set(target,key,val,context) {
-			if (!state.targetProps.has(context)) {
-				state.targetProps.set(context,{});
-			}
-			var props = state.targetProps.get(context);
-			props[key] = val;
-
-			Object.defineProperty(context,key,{
-				set(newVal) {
-					var prevVal = props[key];
-					// changed?
-					if (!Object.is(prevVal,newVal)) {
-						props[key] = newVal;
-						onStateChange(key,prevVal,newVal);
-					}
-				},
-				get() {
-					return props[key];
-				},
-				configurable: false,
-				enumerable: true
-			});
-
-			return true;
-		}
-	}));
-});
-
-var generateComponentID = wrapState(function generateComponentID(state){
-	var componentIDs = (
-		state.componentIDs = state.componentIDs || new Set()
-	);
+var generateComponentID = wrapState(function generateComponentID(){
+	var [ componentIDs ] = useState(() => new Set());
 
 	do {
 		var id = Math.round(1E9 * Math.random());
@@ -62,13 +30,14 @@ var generateComponentID = wrapState(function generateComponentID(state){
 	return id;
 });
 
-var schedule = wrapState(function schedule(state,type,context){
-	state.componentOps = state.componentOps || new Map();
+var schedule = wrapState(function schedule(type,context){
+	var [ componentOps ] = useState(() => new Map());
+	var [ next, updateNext ] = useState(null);
 
-	if (!state.componentOps.has(context.instance)) {
-		state.componentOps.set(context.instance,{});
+	if (!componentOps.has(context.instance)) {
+		componentOps.set(context.instance,{});
 	}
-	var componentOpEntry = state.componentOps.get(context.instance);
+	var componentOpEntry = componentOps.get(context.instance);
 
 	if (type == "render" && !componentOpEntry.render) {
 		componentOpEntry.render = context;
@@ -77,38 +46,38 @@ var schedule = wrapState(function schedule(state,type,context){
 		return;
 	}
 
-	if (!state.next) {
-		state.next = Promise.resolve().then(function drainOpQueue(){
-			// capture snapshot of all pending component ops
-			var opEntries = [ ...state.componentOps.values() ];
-			state.componentOps.clear();
-			state.next = null;
+	if (!next) {
+		updateNext(
+			Promise.resolve().then(function drainOpQueue(){
+				// capture snapshot of all pending component ops
+				var opEntries = [ ...componentOps.values() ];
+				componentOps.clear();
+				updateNext(null);
 
-			// process all scheduled component renders
-			for (let opEntry of opEntries) {
-				if (opEntry.render) {
-					let {
-						id, root, instance, initialArgs
-					} = opEntry.render;
+				// process all scheduled component renders
+				for (let opEntry of opEntries) {
+					if (opEntry.render) {
+						let {
+							id, root, instance, initialArgs
+						} = opEntry.render;
 
-					let html = instance(...(initialArgs || []));
-					root.querySelectorAll(`[id='${ id }']`)[0].innerHTML = html;
+						let html = instance(...(initialArgs || []));
+						root.querySelectorAll(`[id='${ id }']`)[0].innerHTML = html;
+					}
 				}
-			}
-		});
+			})
+		);
 	}
 });
 
-var mount = wrapState(function mount(state,root,component,initialArgs = []){
-	var mountedComponents = (
-		state.mountedComponents = state.mountedComponents || new WeakMap()
-	);
+var mount = wrapState(function mount(root,component,initialArgs = []){
+	var [ mountedComponents ] = useState(() => new WeakMap());
 
-	if (!state.mountedComponents.has(component)) {
-		state.mountedComponents.set(component,[]);
+	if (!mountedComponents.has(component)) {
+		mountedComponents.set(component,[]);
 	}
 
-	var componentEntries = state.mountedComponents.get(component);
+	var componentEntries = mountedComponents.get(component);
 
 	if (!componentEntries.find(entry => entry.root == root)) {
 		let componentID = generateComponentID();
@@ -118,6 +87,7 @@ var mount = wrapState(function mount(state,root,component,initialArgs = []){
 		let componentEntry = {
 			id: componentID,
 			root,
+			hooks: null,
 			instance: null,
 			initialArgs,
 			elem
@@ -127,7 +97,8 @@ var mount = wrapState(function mount(state,root,component,initialArgs = []){
 			component,
 			function onStateChange(){
 				schedule("render",componentEntry);
-			}
+			},
+			componentEntry
 		);
 		componentEntry.instance = componentInstance;
 		componentEntries.push(componentEntry);
@@ -140,3 +111,36 @@ var mount = wrapState(function mount(state,root,component,initialArgs = []){
 
 	return false;
 });
+
+function useState(initialVal) {
+	var currentState = componentStack[componentStack.length - 1];
+	var [ hooks, hookIdx, onStateChange ] = currentState;
+
+	if (!hooks[hookIdx]) {
+		if (typeof initialVal == "function") {
+			initialVal = initialVal();
+		}
+		let hook = [
+			initialVal,
+			function setState(newVal){
+				var prevVal = hook[0];
+				if (typeof newVal == "function") {
+					newVal = newVal(prevVal);
+				}
+
+				hook[0] = newVal;
+				if (onStateChange) {
+					onStateChange(prevVal,newVal);
+				}
+
+				return newVal;
+			}
+		];
+		hooks[hookIdx] = hook;
+	}
+
+	// increment hook index for next usage
+	currentState[1]++;
+
+	return [ ...hooks[hookIdx] ];
+}
