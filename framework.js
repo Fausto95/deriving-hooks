@@ -42,6 +42,12 @@ var schedule = wrapState(function schedule(type,context){
 	if (type == "render" && !componentOpEntry.render) {
 		componentOpEntry.render = context;
 	}
+	else if (type == "effect") {
+		if (!componentOpEntry.effects) {
+			componentOpEntry.effects = [];
+		}
+		componentOpEntry.effects.push(context.effect);
+	}
 	else {
 		return;
 	}
@@ -54,7 +60,9 @@ var schedule = wrapState(function schedule(type,context){
 				componentOps.clear();
 				updateNext(null);
 
-				// process all scheduled component renders
+				var effects = [];
+
+				// process all scheduled component renders first
 				for (let opEntry of opEntries) {
 					if (opEntry.render) {
 						let {
@@ -64,6 +72,16 @@ var schedule = wrapState(function schedule(type,context){
 						let html = instance(...(initialArgs || []));
 						root.querySelectorAll(`[id='${ id }']`)[0].innerHTML = html;
 					}
+
+					// collect any scheduled effects
+					if (opEntry.effects) {
+						effects = [ ...effects, ...opEntry.effects ];
+					}
+				}
+
+				// process all scheduled effects
+				for (let effect of effects) {
+					effect();
 				}
 			})
 		);
@@ -143,4 +161,67 @@ function useState(initialVal) {
 	currentState[1]++;
 
 	return [ ...hooks[hookIdx] ];
+}
+
+function useEffect(effect,guards) {
+	var currentState = componentStack[componentStack.length - 1];
+	var [ hooks, hookIdx,, componentInstance ] = currentState;
+
+	if (!hooks[hookIdx]) {
+		hooks[hookIdx] = [];
+	}
+
+	var effectHook = hooks[hookIdx];
+	var prevGuards = effectHook[0];
+
+	// guards-mismatch indicates effect should be run?
+	if (!matchGuards(prevGuards,guards)) {
+		// save current guards state for future comparison
+		effectHook[0] = Array.isArray(guards) ? [ ...guards ] : guards;
+
+		// setup the effect handler
+		effectHook[1] = function doEffect(){
+			// unset ourself
+			effectHook[1] = null;
+
+			// need to first perform a cleanup from
+			// a previous effect?
+			if (typeof effectHook[2] == "function") {
+				effectHook[2]();
+				effectHook[2] = null;
+			}
+
+			// perform the effect
+			let ret = effect();
+
+			// store a cleanup function if any returned
+			if (typeof ret == "function") {
+				effectHook[2] = ret;
+			}
+		};
+
+		schedule("effect",{
+			instance: componentInstance,
+			effect: effectHook[1]
+		});
+	}
+
+	// increment hook index for next usage
+	currentState[1]++;
+}
+
+function matchGuards(prevGuards,newGuards) {
+	if (!(
+		Array.isArray(prevGuards) &&
+		Array.isArray(newGuards) &&
+		prevGuards.length == newGuards.length
+	)) {
+		return false;
+	}
+	for (let [idx,guard] of prevGuards.entries()) {
+		if (!Object.is(guard,newGuards[idx])) {
+			return false;
+		}
+	}
+	return true;
 }
