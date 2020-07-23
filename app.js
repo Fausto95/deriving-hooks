@@ -13,7 +13,6 @@ function countdownTimer(state,initialCounter = 5) {
 	if (!("timer" in state)) {
 		state.timer = setInterval(function countdown(){
 			state.counter--;
-			state.commitUpdates();
 
 			if (state.counter <= 0) {
 				clearInterval(state.timer);

@@ -3,14 +3,51 @@
 var componentStack = [];
 
 function wrapState(fn,onStateChange) {
-	var state = {
-		commitUpdates() { onStateChange(); }
-	};
+	var proxy = onStateChange ? createStateProxy(onStateChange) : null;
+	var state = Object.create(proxy);
 
 	return function component(...args){
 		return fn(state,...args);
 	};
 }
+
+var createStateProxy = wrapState(function createStateProxy(state,onStateChange){
+	state.targetProps = state.targetProps || new WeakMap();
+
+	return Object.freeze(new Proxy({},{
+		has(target,key,context) {
+			if (state.targetProps.has(context)) {
+				return (key in state.targetProps.get(context));
+			}
+			return false;
+		},
+		set(target,key,val,context) {
+			if (!state.targetProps.has(context)) {
+				state.targetProps.set(context,{});
+			}
+			var props = state.targetProps.get(context);
+			props[key] = val;
+
+			Object.defineProperty(context,key,{
+				set(newVal) {
+					var prevVal = props[key];
+					// changed?
+					if (!Object.is(prevVal,newVal)) {
+						props[key] = newVal;
+						onStateChange(key,prevVal,newVal);
+					}
+				},
+				get() {
+					return props[key];
+				},
+				configurable: false,
+				enumerable: true
+			});
+
+			return true;
+		}
+	}));
+});
 
 var generateComponentID = wrapState(function generateComponentID(state){
 	var componentIDs = (
