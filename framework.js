@@ -1,8 +1,16 @@
 "use strict";
 
-var componentStack = [];
+var bindComponentStack = (function hideComponentStack(){
+	var componentStack = [];
 
-function wrapState(fn,onStateChange,componentEntry) {
+	return function bindComponentStack(fn){
+		return function bound(...args){
+			return fn(componentStack,...args);
+		};
+	};
+})();
+
+var wrapState = bindComponentStack(function wrapState(componentStack,fn,onStateChange,componentEntry){
 	var hooks = [];
 	if (componentEntry) {
 		componentEntry.hooks = hooks;
@@ -17,7 +25,7 @@ function wrapState(fn,onStateChange,componentEntry) {
 			componentStack.pop();
 		}
 	};
-}
+});
 
 var generateComponentID = wrapState(function generateComponentID(){
 	var [ componentIDs ] = useState(() => new Set());
@@ -130,7 +138,7 @@ var mount = wrapState(function mount(root,component,initialArgs = []){
 	return false;
 });
 
-function useState(initialVal) {
+var useState = bindComponentStack(function useState(componentStack,initialVal){
 	var currentState = componentStack[componentStack.length - 1];
 	var [ hooks, hookIdx, onStateChange ] = currentState;
 
@@ -161,9 +169,9 @@ function useState(initialVal) {
 	currentState[1]++;
 
 	return [ ...hooks[hookIdx] ];
-}
+});
 
-function useEffect(effect,guards) {
+var useEffect = bindComponentStack(function useEffect(componentStack,effect,guards){
 	var currentState = componentStack[componentStack.length - 1];
 	var [ hooks, hookIdx,, componentInstance ] = currentState;
 
@@ -208,7 +216,7 @@ function useEffect(effect,guards) {
 
 	// increment hook index for next usage
 	currentState[1]++;
-}
+});
 
 function matchGuards(prevGuards,newGuards) {
 	if (!(
