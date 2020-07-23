@@ -20,5 +20,16 @@ function countdownTimer(counter) {
 	var root = document.getElementById("root");
 	var div = document.createElement("div");
 	root.appendChild(div);
-	div.innerHTML = countdownTimer(5);
+
+	var counter = 5;
+	div.innerHTML = countdownTimer(counter);
+
+	var timer = setInterval(function countdown(){
+		counter--;
+		div.innerHTML = countdownTimer(counter);
+
+		if (counter <= 0) {
+			clearInterval(timer);
+		}
+	},1000);
 })();
