@@ -17,12 +17,14 @@ var wrapState = bindComponentStack(function wrapState(componentStack,fn,onStateC
 	}
 
 	return function component(...args){
-		componentStack.push([ hooks, 0, onStateChange, component, componentEntry ]);
-		try {
-			return fn(...args);
-		}
-		finally {
-			componentStack.pop();
+		if (!componentEntry || componentEntry.mounted) {
+			componentStack.push([ hooks, 0, onStateChange, component, componentEntry ]);
+			try {
+				return fn(...args);
+			}
+			finally {
+				componentStack.pop();
+			}
 		}
 	};
 });
@@ -52,6 +54,7 @@ var schedule = wrapState(function schedule(type,context){
 	}
 	else if (type == "effect") {
 		if (!componentOpEntry.effects) {
+			componentOpEntry.componentEntry = context.componentEntry;
 			componentOpEntry.effects = [];
 		}
 		componentOpEntry.effects.push(context.effect);
@@ -72,7 +75,7 @@ var schedule = wrapState(function schedule(type,context){
 
 				// process all scheduled component renders first
 				for (let opEntry of opEntries) {
-					if (opEntry.render) {
+					if (opEntry.render && opEntry.render.mounted) {
 						let {
 							id, root, instance, initialArgs
 						} = opEntry.render;
@@ -82,7 +85,7 @@ var schedule = wrapState(function schedule(type,context){
 					}
 
 					// collect any scheduled effects
-					if (opEntry.effects) {
+					if (opEntry.effects && opEntry.componentEntry.mounted) {
 						effects = [ ...effects, ...opEntry.effects ];
 					}
 				}
@@ -97,7 +100,8 @@ var schedule = wrapState(function schedule(type,context){
 });
 
 var mount = wrapState(function mount(root,component,initialArgs = []){
-	var [ mountedComponents ] = useState(() => new WeakMap());
+	var [ useSharedState ] = useSharedStore("mounted-components",() => {});
+	var [ mountedComponents ] = useSharedState("mounted",() => new WeakMap());
 
 	if (!mountedComponents.has(component)) {
 		mountedComponents.set(component,[]);
@@ -111,14 +115,15 @@ var mount = wrapState(function mount(root,component,initialArgs = []){
 		elem.id = componentID;
 
 		let componentEntry = {
+			mounted: true,
 			id: componentID,
 			root,
 			hooks: null,
 			instance: null,
 			initialArgs,
+			effectCleanups: new Set(),
 			elem
 		};
-
 		let componentInstance = wrapState(
 			component,
 			function onStateChange(){
@@ -128,11 +133,35 @@ var mount = wrapState(function mount(root,component,initialArgs = []){
 		);
 		componentEntry.instance = componentInstance;
 		componentEntries.push(componentEntry);
-
 		root.appendChild(elem);
 
 		schedule("render",componentEntry);
 		return true;
+	}
+
+	return false;
+});
+
+var unmount = wrapState(function unmount(root,component){
+	var [ useSharedState ] = useSharedStore("mounted-components",() => {});
+	var [ mountedComponents ] = useSharedState("mounted",() => new WeakMap());
+
+	if (mountedComponents.has(component)) {
+		let componentEntries = mountedComponents.get(component);
+		let componentEntryIndex = componentEntries.findIndex(entry => entry.root == root);
+		if (componentEntryIndex >= 0) {
+			let componentEntry = componentEntries.splice(componentEntryIndex,1)[0];
+			componentEntry.mounted = false;
+			// apply any pending cleanups
+			for (let cleanup of componentEntry.effectCleanups) {
+				cleanup();
+			}
+			componentEntry.effectCleanups.clear();
+			componentEntry.elem.remove();
+			componentEntry.hooks.length = 0;
+			componentEntry = componentEntry.elem = componentEntry.root =
+				componentEntry.instance = componentEntry.hooks = null;
+		}
 	}
 
 	return false;
@@ -240,7 +269,7 @@ var useState = bindComponentStack(function useState(componentStack,initialVal){
 
 var useEffect = bindComponentStack(function useEffect(componentStack,effect,guards){
 	var currentState = componentStack[componentStack.length - 1];
-	var [ hooks, hookIdx,, componentInstance ] = currentState;
+	var [ hooks, hookIdx,, componentInstance, componentEntry ] = currentState;
 
 	if (!hooks[hookIdx]) {
 		hooks[hookIdx] = [];
@@ -262,6 +291,8 @@ var useEffect = bindComponentStack(function useEffect(componentStack,effect,guar
 			// need to first perform a cleanup from
 			// a previous effect?
 			if (typeof effectHook[2] == "function") {
+				// discard the (saved for unmounting) cleanup function
+				componentEntry.effectCleanups.delete(effectHook[2]);
 				effectHook[2]();
 				effectHook[2] = null;
 			}
@@ -272,12 +303,15 @@ var useEffect = bindComponentStack(function useEffect(componentStack,effect,guar
 			// store a cleanup function if any returned
 			if (typeof ret == "function") {
 				effectHook[2] = ret;
+				// save the cleanup function (for unmounting)
+				componentEntry.effectCleanups.add(ret);
 			}
 		};
 
 		schedule("effect",{
 			instance: componentInstance,
-			effect: effectHook[1]
+			effect: effectHook[1],
+			componentEntry
 		});
 	}
 

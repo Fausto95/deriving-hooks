@@ -76,13 +76,27 @@ function useWelcomeMessage(initialMsg,countdownStarted,logEvent) {
 function useEventLog(onUpdate) {
 	var [ useSharedState, store ] = useSharedStore("event-log",onUpdate);
 	var [ eventLogMsgs ] = useSharedState("msgs",[]);
-	var [ { log } ] = useSharedState("log",{
+
+	// store event logging callbacks
+	var [ useSharedFnState, fnStore ] = useSharedStore("event-log-functions",() => {});
+	var [ { log } ] = useSharedFnState("log",{
 		log(msg) {
-			eventLogMsgs.push(msg);
-			store.commitUpdate("msgs");
+			if (fnStore.has("reverted")) {
+				console.log(msg);
+			}
+			else {
+				eventLogMsgs.push(msg);
+				store.commitUpdate("msgs");
+			}
 		}
 	});
-	return [ log, eventLogMsgs ];
+	var [ { revertLogging } ] = useSharedFnState("revertLogging",{
+		revertLogging() {
+			fnStore.set("reverted",true);
+		}
+	});
+
+	return [ log, eventLogMsgs, revertLogging ];
 }
 
 function countdownTimer(initialCounter = 5) {
@@ -103,8 +117,26 @@ function countdownTimer(initialCounter = 5) {
 	);
 }
 
+function useHideEventLogButton(switchToConsoleLogging) {
+	useEffect(function handleButtonClick(){
+		var btnEl = document.getElementById("hide-event-log-btn");
+		var hideEventLog = () => {
+			switchToConsoleLogging();
+			unmount(document.getElementById("root"),eventLog);
+		};
+		btnEl.addEventListener("click",hideEventLog,false);
+
+		// cleanup click handler
+		return () => {
+			// console.log("removing hide-event-log-btn click handler");
+			btnEl.removeEventListener("click",hideEventLog,false);
+		};
+	});
+}
+
 function eventLog() {
-	var [ , eventLogMsgs ] = useEventLog();
+	var [ , eventLogMsgs, switchToConsoleLogging ] = useEventLog();
+	useHideEventLogButton(switchToConsoleLogging);
 
 	// collect messages (if any)
 	var messages = "";
@@ -114,7 +146,7 @@ function eventLog() {
 
 	return (`
 		<hr>
-		<h3>Event Log</h3>
+		<h3>Event Log <button type="button" id="hide-event-log-btn">X</button></h3>
 		${
 			(messages != "") ?
 				messages :
