@@ -1,14 +1,20 @@
 "use strict";
 
-function countdownTimer(counter) {
-	return `
-		<span>${
-			(counter > 0) ?
-				`Counting down: ${ counter }` :
-				"Finished!"
-		}
-		</span>
-	`;
+function makeCountdownTimer(initialCounter = 5) {
+	var counter = initialCounter;
+
+	return function countdownTimer(){
+		var html = `
+			<span>${
+				(counter > 0) ?
+					`Counting down: ${ counter }` :
+					"Finished!"
+			}
+			</span>
+		`;
+		counter--;
+		return html;
+	};
 }
 
 
@@ -21,14 +27,17 @@ function countdownTimer(counter) {
 	var div = document.createElement("div");
 	root.appendChild(div);
 
-	var counter = 5;
-	div.innerHTML = countdownTimer(counter);
+	var initialCounter = 5;
+	var countdownTimer = makeCountdownTimer(initialCounter);
 
+	div.innerHTML = countdownTimer();
+
+	var i = 0;
 	var timer = setInterval(function countdown(){
-		counter--;
-		div.innerHTML = countdownTimer(counter);
+		div.innerHTML = countdownTimer();
 
-		if (counter <= 0) {
+		i++;
+		if (i == initialCounter) {
 			clearInterval(timer);
 		}
 	},1000);
