@@ -9,7 +9,7 @@ mount(document.getElementById("root"),countdownTimer);
 function useCountdown(initialCounter) {
 	var [ countdownStarted, updateCountdownStarted ] = useState(false);
 	var [ counter, updateCounter ] = useState(initialCounter);
-	var [ timer, updateTimer ] = useState();
+	var timerRef = useRef();
 
 	useEffect(function handleButtonClick(){
 		if (!countdownStarted) {
@@ -29,28 +29,45 @@ function useCountdown(initialCounter) {
 		}
 	});
 
-	useEffect(function setupInterval(){
-		if (countdownStarted && counter > 0) {
-			console.log("starting countdown timer");
-			timer = updateTimer(
-				setInterval(function countdown(){
-					updateCounter(prevCounter => prevCounter - 1);
-				},1000)
-			);
+	useEffectToggle(function setupInterval(){
+		console.log("starting countdown timer");
+		timerRef.current = setInterval(function countdown(){
+			updateCounter(prevCounter => prevCounter - 1);
+		},1000);
 
-			// clearup timer interval
-			return () => {
-				console.log("clearing timer");
-				clearInterval(timer);
-			};
-		}
-	},[ countdownStarted, (counter > 0) ]);
+		// clearup timer interval
+		return () => {
+			console.log("clearing countdown timer");
+			clearInterval(timerRef.current);
+		};
+	},(countdownStarted && counter > 0));
 
 	return [ countdownStarted, counter ];
 }
 
+function useWelcomeMessage(initialMsg,countdownStarted) {
+	var [ welcomeMsg, setWelcomeMsg ] = useState(initialMsg);
+	var timerRef = useRef();
+
+	// delay rendering of a welcome message
+	useEffectToggle(function wait(){
+		console.log("starting welcome message timer");
+		timerRef.current = setTimeout(
+			() => setWelcomeMsg("Welcome!"),
+			2000
+		);
+		return () => {
+			console.log("clearing welcome message timer");
+			clearTimeout(timerRef.current);
+		};
+	},(!countdownStarted && (welcomeMsg == initialMsg)));
+
+	return welcomeMsg;
+}
+
 function countdownTimer(initialCounter = 5) {
 	var [ countdownStarted, counter	] = useCountdown(initialCounter);
+	var welcomeMsg = useWelcomeMessage("Loading...",countdownStarted);
 
 	return (
 		countdownStarted ?
@@ -60,6 +77,7 @@ function countdownTimer(initialCounter = 5) {
 					"Finished!"
 			}
 			</span>` :
-			`<button type="button" id="start-countdown">start countdown</button>`
+			`<p>${ welcomeMsg }</p>
+			<button type="button" id="start-countdown">start countdown</button>`
 	);
 }

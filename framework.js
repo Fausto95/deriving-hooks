@@ -218,6 +218,19 @@ var useEffect = bindComponentStack(function useEffect(componentStack,effect,guar
 	currentState[1]++;
 });
 
+function useRef(initialVal) {
+	var [ ref ] = useState({ current: initialVal });
+	return ref;
+}
+
+function useEffectToggle(fn,applyEffect) {
+	useEffect(() => {
+		if (applyEffect) {
+			return fn();
+		}
+	},[ applyEffect ]);
+}
+
 function matchGuards(prevGuards,newGuards) {
 	if (!(
 		Array.isArray(prevGuards) &&
