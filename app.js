@@ -1,44 +1,35 @@
 "use strict";
 
-function makeCountdownTimer(initialCounter = 5) {
-	var counter = initialCounter;
+mount(document.getElementById("root"),countdownTimer);
 
-	return function countdownTimer(){
-		var html = `
-			<span>${
-				(counter > 0) ?
-					`Counting down: ${ counter }` :
-					"Finished!"
-			}
-			</span>
-		`;
-		counter--;
-		return html;
-	};
-}
+var state = {};
 
 
 
 
 // *************************
 
-(function app(){
-	var root = document.getElementById("root");
-	var div = document.createElement("div");
-	root.appendChild(div);
+function countdownTimer(forceRender,initialCounter = 5) {
+	state.counter = ("counter" in state) ? state.counter : initialCounter;
 
-	var initialCounter = 5;
-	var countdownTimer = makeCountdownTimer(initialCounter);
+	// one time setup of the countdown interval
+	if (!("timer" in state)) {
+		state.timer = setInterval(function countdown(){
+			state.counter--;
+			forceRender();
 
-	div.innerHTML = countdownTimer();
+			if (state.counter <= 0) {
+				clearInterval(state.timer);
+			}
+		},1000);
+	}
 
-	var i = 0;
-	var timer = setInterval(function countdown(){
-		div.innerHTML = countdownTimer();
-
-		i++;
-		if (i == initialCounter) {
-			clearInterval(timer);
+	return `
+		<span>${
+			(state.counter > 0) ?
+				`Counting down: ${ state.counter }` :
+				"Finished!"
 		}
-	},1000);
-})();
+		</span>
+	`;
+}
