@@ -6,39 +6,60 @@ mount(document.getElementById("root"),countdownTimer);
 
 // *************************
 
-function countdownTimer(initialCounter = 5) {
+function useCountdown(initialCounter) {
+	var [ countdownStarted, updateCountdownStarted ] = useState(false);
 	var [ counter, updateCounter ] = useState(initialCounter);
 	var [ timer, updateTimer ] = useState();
 
-	// just for illustrating debugging purposes
-	useEffect(function(){
-		console.log(`counter: ${ counter }`);
+	useEffect(function handleButtonClick(){
+		if (!countdownStarted) {
+			let btnEl = document.getElementById("start-countdown");
+
+			let startCountdown = () => {
+				countdownStarted = updateCountdownStarted(true);
+			};
+			console.log("adding click handler");
+			btnEl.addEventListener("click",startCountdown,false);
+
+			// cleanup click handler
+			return () => {
+				console.log("removing click handler");
+				btnEl.removeEventListener("click",startCountdown,false);
+			};
+		}
 	});
 
-	// first time (only!) setup of the countdown interval
 	useEffect(function setupInterval(){
-		updateTimer(
-			setInterval(function countdown(){
-				updateCounter(prevCounter => prevCounter - 1);
-			},1000)
-		);
-	},[]);
+		if (countdownStarted && counter > 0) {
+			console.log("starting countdown timer");
+			timer = updateTimer(
+				setInterval(function countdown(){
+					updateCounter(prevCounter => prevCounter - 1);
+				},1000)
+			);
 
-	// cleanup the interval when it finishes
-	// note: will run initially (but as a no-op),
-	// then run again at the end
-	useEffect(function cleanupInterval(){
-		if (counter <= 0) {
-			clearInterval(timer);
+			// clearup timer interval
+			return () => {
+				console.log("clearing timer");
+				clearInterval(timer);
+			};
 		}
-	},[ (counter > 0) ]);
+	},[ countdownStarted, (counter > 0) ]);
 
-	return `
-		<span>${
-			(counter > 0) ?
-				`Counting down: ${ counter }` :
-				"Finished!"
-		}
-		</span>
-	`;
+	return [ countdownStarted, counter ];
+}
+
+function countdownTimer(initialCounter = 5) {
+	var [ countdownStarted, counter	] = useCountdown(initialCounter);
+
+	return (
+		countdownStarted ?
+			`<span>${
+				(counter > 0) ?
+					`Counting down: ${ counter }` :
+					"Finished!"
+			}
+			</span>` :
+			`<button type="button" id="start-countdown">start countdown</button>`
+	);
 }
